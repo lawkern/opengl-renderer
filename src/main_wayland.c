@@ -14,10 +14,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "xdg-shell-client-protocol.h"
-#include "xdg-decoration-unstable-v1-client-protocol.h"
+#include "external/xdg-shell-client-protocol.h"
+#include "external/xdg-shell-protocol.c"
+
+#include "external/xdg-decoration-unstable-v1-client-protocol.h"
+#include "external/xdg-decoration-unstable-v1-protocol.c"
 
 #include "shared.h"
+#include "opengl_renderer.h"
 #include "opengl_renderer.c"
 
 typedef struct {
@@ -147,10 +151,6 @@ static void Key_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, u
          {
             Wayland->Running = false;
          }
-      } break;
-
-      default: {
-         printf("Key: %u (%s)\n", Key, (Pressed) ? "pressed" : "released");
       } break;
    }
 }
@@ -282,7 +282,10 @@ static bool Initialize_Wayland_Opengl(wayland_context *Wayland, int Width, int H
                      {
                         if(eglMakeCurrent(Wayland->Opengl_Display, Wayland->Opengl_Surface, Wayland->Opengl_Surface, Wayland->Opengl_Context))
                         {
-                           Result = true;
+                           if(Initialize_Opengl())
+                           {
+                              Result = true;
+                           }
                         }
                         else
                         {
