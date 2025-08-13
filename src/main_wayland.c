@@ -6,6 +6,7 @@
 
 #include <wayland-client.h>
 #include <wayland-egl.h>
+#include <linux/input-event-codes.h>
 #include <EGL/egl.h>
 #include <GL/gl.h>
 
@@ -15,7 +16,9 @@
 
 #include "xdg-shell-client-protocol.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
+
 #include "shared.h"
+#include "opengl_renderer.c"
 
 typedef struct {
    struct wl_display *Display;
@@ -23,6 +26,8 @@ typedef struct {
    struct wl_surface *Surface;
    struct wl_egl_window *Window;
    struct wl_registry *Registry;
+   struct wl_seat *Seat;
+   struct wl_keyboard *Keyboard;
 
    struct xdg_wm_base *Desktop_Base;
    struct xdg_surface *Desktop_Surface;
@@ -41,6 +46,7 @@ typedef struct {
    struct zxdg_toplevel_decoration_v1 *Toplevel_Decoration;
 } wayland_context;
 
+// NOTE: Configure the global registry and its callbacks.
 static void Global_Registry(void *Data, struct wl_registry *Registry, u32 ID, const char *Interface, u32 Version)
 {
    wayland_context *Wayland = Data;
@@ -56,9 +62,14 @@ static void Global_Registry(void *Data, struct wl_registry *Registry, u32 ID, co
    {
       Wayland->Decoration_Manager = wl_registry_bind(Registry, ID, &zxdg_decoration_manager_v1_interface, 1);
    }
+   else if(strcmp(Interface, wl_seat_interface.name) == 0)
+   {
+      Wayland->Seat = wl_registry_bind(Registry, ID, &wl_seat_interface, 1);
+   }
 }
 static void Remove_Global_Registry(void *Data, struct wl_registry *Registry, u32 ID)
 {
+   // ...
 }
 static const struct wl_registry_listener Registry_Listener =
 {
@@ -66,6 +77,8 @@ static const struct wl_registry_listener Registry_Listener =
    .global_remove = Remove_Global_Registry,
 };
 
+
+// NOTE: Configure desktop base callbacks.
 static void Ping_Desktop_Base(void *Data, struct xdg_wm_base *Base, u32 Serial)
 {
    xdg_wm_base_pong(Base, Serial);
@@ -84,6 +97,7 @@ static const struct xdg_surface_listener Desktop_Surface_Listener =
    .configure = Configure_Desktop_Surface,
 };
 
+// NOTE: Configure desktop toplevel callbacks.
 static void Configure_Desktop_Toplevel(void *Data, struct xdg_toplevel *Toplevel, s32 Width, s32 Height, struct wl_array *States)
 {
    wayland_context *Wayland = Data;
@@ -94,7 +108,8 @@ static void Configure_Desktop_Toplevel(void *Data, struct xdg_toplevel *Toplevel
 
       if(Wayland->Window)
       {
-         wl_egl_window_resize(Wayland->Window, Wayland->Window_Width, Wayland->Window_Height, 0, 0);
+         wl_egl_window_resize(Wayland->Window, Width, Height, 0, 0);
+         Resize_Opengl(Width, Height);
       }
    }
 }
@@ -107,6 +122,52 @@ static const struct xdg_toplevel_listener Desktop_Toplevel_Listener =
 {
    .configure = Configure_Desktop_Toplevel,
    .close = Close_Desktop_Toplevel,
+};
+
+// NOTE: Configure keyboard input callbacks.
+static void Map_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Format, int File, u32 Size)
+{
+   // close(File);
+}
+static void Enter_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, struct wl_surface *Surface, struct wl_array *Keys)
+{
+}
+static void Leave_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, struct wl_surface *Surface)
+{
+}
+static void Key_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, u32 Time, u32 Key, u32 State)
+{
+   wayland_context *Wayland = (wayland_context *)Data;
+   bool Pressed = (State == WL_KEYBOARD_KEY_STATE_PRESSED);
+
+   switch(Key)
+   {
+      case KEY_ESC: {
+         if(Pressed)
+         {
+            Wayland->Running = false;
+         }
+      } break;
+
+      default: {
+         printf("Key: %u (%s)\n", Key, (Pressed) ? "pressed" : "released");
+      } break;
+   }
+}
+static void Modify_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, u32 Mods_Depressed, u32 Mods_Latched, u32 Mods_Locked, u32 Group)
+{
+}
+static void Repeat_Keyboard(void *Data, struct wl_keyboard *Keyboard, int Rate, int Delay)
+{
+}
+static const struct wl_keyboard_listener Keyboard_Listener =
+{
+   .keymap = Map_Keyboard,
+   .enter = Enter_Keyboard,
+   .leave = Leave_Keyboard,
+   .key = Key_Keyboard,
+   .modifiers = Modify_Keyboard,
+   .repeat_info = Repeat_Keyboard,
 };
 
 static void Destroy_Wayland(wayland_context *Wayland)
@@ -129,6 +190,12 @@ static void Destroy_Wayland(wayland_context *Wayland)
       wl_egl_window_destroy(Wayland->Window);
    }
 
+   // NOTE: Destroy decorations.
+   if(Wayland->Toplevel_Decoration)
+   {
+      zxdg_toplevel_decoration_v1_destroy(Wayland->Toplevel_Decoration);
+   }
+
    // NOTE: Destroy desktop.
    if(Wayland->Desktop_Toplevel)
    {
@@ -144,6 +211,14 @@ static void Destroy_Wayland(wayland_context *Wayland)
    }
 
    // NOTE: Destroy Wayland.
+   if(Wayland->Keyboard)
+   {
+      wl_keyboard_destroy(Wayland->Keyboard);
+   }
+   if(Wayland->Seat)
+   {
+      wl_seat_destroy(Wayland->Seat);
+   }
    if(Wayland->Surface)
    {
       wl_surface_destroy(Wayland->Surface);
@@ -159,12 +234,6 @@ static void Destroy_Wayland(wayland_context *Wayland)
    if(Wayland->Display)
    {
       wl_display_disconnect(Wayland->Display);
-   }
-
-   // NOTE: Destroy decorations.
-   if(Wayland->Toplevel_Decoration)
-   {
-      zxdg_toplevel_decoration_v1_destroy(Wayland->Toplevel_Decoration);
    }
 }
 
@@ -271,6 +340,15 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
 
       if(Wayland->Compositor && Wayland->Desktop_Base)
       {
+         if(Wayland->Seat)
+         {
+            Wayland->Keyboard = wl_seat_get_keyboard(Wayland->Seat);
+            if(Wayland->Keyboard)
+            {
+               wl_keyboard_add_listener(Wayland->Keyboard, &Keyboard_Listener, Wayland);
+            }
+         }
+
          xdg_wm_base_add_listener(Wayland->Desktop_Base, &Desktop_Base_Listener, Wayland);
 
          Wayland->Surface = wl_compositor_create_surface(Wayland->Compositor);
@@ -287,6 +365,8 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
                   xdg_toplevel_add_listener(Wayland->Desktop_Toplevel, &Desktop_Toplevel_Listener, Wayland);
                   xdg_toplevel_set_title(Wayland->Desktop_Toplevel, "OpenGL Window");
 
+                  // NOTE: Unclear why decorations are considered unstable, but
+                  // if we can't get a title bar it's not a big deal.
                   if(Wayland->Decoration_Manager)
                   {
                      Wayland->Toplevel_Decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(Wayland->Decoration_Manager, Wayland->Desktop_Toplevel);
@@ -329,9 +409,7 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
 
 static void Display_Wayland_With_Opengl(wayland_context *Wayland)
 {
-   glClearColor(0, 0, 1, 1);
-   glClear(GL_COLOR_BUFFER_BIT);
-
+   Render_With_Opengl();
    eglSwapBuffers(Wayland->Opengl_Display, Wayland->Opengl_Surface);
 }
 
