@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "xdg-shell-client-protocol.h"
+#include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "shared.h"
 
 typedef struct {
@@ -35,6 +36,9 @@ typedef struct {
    int Window_Width;
    int Window_Height;
    bool Running;
+
+   struct zxdg_decoration_manager_v1 *Decoration_Manager;
+   struct zxdg_toplevel_decoration_v1 *Toplevel_Decoration;
 } wayland_context;
 
 static void Global_Registry(void *Data, struct wl_registry *Registry, u32 ID, const char *Interface, u32 Version)
@@ -47,6 +51,10 @@ static void Global_Registry(void *Data, struct wl_registry *Registry, u32 ID, co
    else if(strcmp(Interface, xdg_wm_base_interface.name) == 0)
    {
       Wayland->Desktop_Base = wl_registry_bind(Registry, ID, &xdg_wm_base_interface, 1);
+   }
+   else if(strcmp(Interface, zxdg_decoration_manager_v1_interface.name) == 0)
+   {
+      Wayland->Decoration_Manager = wl_registry_bind(Registry, ID, &zxdg_decoration_manager_v1_interface, 1);
    }
 }
 static void Remove_Global_Registry(void *Data, struct wl_registry *Registry, u32 ID)
@@ -152,6 +160,12 @@ static void Destroy_Wayland(wayland_context *Wayland)
    {
       wl_display_disconnect(Wayland->Display);
    }
+
+   // NOTE: Destroy decorations.
+   if(Wayland->Toplevel_Decoration)
+   {
+      zxdg_toplevel_decoration_v1_destroy(Wayland->Toplevel_Decoration);
+   }
 }
 
 static bool Initialize_Wayland_Opengl(wayland_context *Wayland, int Width, int Height)
@@ -173,6 +187,7 @@ static bool Initialize_Wayland_Opengl(wayland_context *Wayland, int Width, int H
       {
          EGL_CONTEXT_MAJOR_VERSION, 3,
          EGL_CONTEXT_MINOR_VERSION, 3,
+         EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
          EGL_NONE,
       };
 
@@ -271,6 +286,12 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
                {
                   xdg_toplevel_add_listener(Wayland->Desktop_Toplevel, &Desktop_Toplevel_Listener, Wayland);
                   xdg_toplevel_set_title(Wayland->Desktop_Toplevel, "OpenGL Window");
+
+                  if(Wayland->Decoration_Manager)
+                  {
+                     Wayland->Toplevel_Decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(Wayland->Decoration_Manager, Wayland->Desktop_Toplevel);
+                     zxdg_toplevel_decoration_v1_set_mode(Wayland->Toplevel_Decoration, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+                  }
 
                   wl_surface_commit(Wayland->Surface);
                   wl_display_dispatch(Wayland->Display);
