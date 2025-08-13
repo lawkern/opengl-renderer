@@ -1,6 +1,7 @@
 /* (c) copyright 2025 Lawrence D. Kern /////////////////////////////////////// */
 
 #define Assert(Cond) do { if(!(Cond)) { __builtin_trap(); } } while(0)
+#define Array_Count(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 #include <stdint.h>
 typedef int32_t s32;

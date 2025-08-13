@@ -1,14 +1,27 @@
 /* (c) copyright 2025 Lawrence D. Kern /////////////////////////////////////// */
 
 // NOTE: Renderer API.
-#define INITIALIZE_OPENGL(Name) bool Name(void)
+
+typedef struct {
+   GLuint VBO;
+   GLuint VAO;
+   GLuint Shader_Program;
+} opengl_context;
+
+#define INITIALIZE_OPENGL(Name) void Name(opengl_context *GL)
+static INITIALIZE_OPENGL(Initialize_Opengl);
+
 #define RESIZE_OPENGL(Name) void Name(int Width, int Height)
-#define RENDER_WITH_OPENGL(Name) void Name(void)
+static RESIZE_OPENGL(Resize_Opengl);
+
+#define RENDER_WITH_OPENGL(Name) void Name(opengl_context *GL)
+static RENDER_WITH_OPENGL(Render_With_Opengl);
 
 // NOTE: We want to support platforms like Windows, where gl functions beyond a
 // few basics from OpenGL version 1 will be unavailable by default. For now, we
 // just forward declare them here, and let the platforms GetProcAddress them as
 // needed.
+GLenum glGetError(void);
 void glGenBuffers(GLsizei, GLuint *);
 void glBindBuffer(GLenum, GLuint);
 void glBufferData(GLenum, GLsizeiptr, const GLvoid *, GLenum);

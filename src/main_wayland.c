@@ -6,6 +6,7 @@
 
 #include <wayland-client.h>
 #include <wayland-egl.h>
+#include <unistd.h>
 #include <linux/input-event-codes.h>
 #include <EGL/egl.h>
 #include <GL/gl.h>
@@ -45,6 +46,7 @@ typedef struct {
    int Window_Width;
    int Window_Height;
    bool Running;
+   bool Alt_Pressed;
 
    struct zxdg_decoration_manager_v1 *Decoration_Manager;
    struct zxdg_toplevel_decoration_v1 *Toplevel_Decoration;
@@ -128,10 +130,24 @@ static const struct xdg_toplevel_listener Desktop_Toplevel_Listener =
    .close = Close_Desktop_Toplevel,
 };
 
+static void Toggle_Wayland_Fullscreen(wayland_context *Wayland)
+{
+   static bool Fullscreen;
+   if(!Fullscreen)
+   {
+      xdg_toplevel_set_fullscreen(Wayland->Desktop_Toplevel, 0);
+   }
+   else
+   {
+      xdg_toplevel_unset_fullscreen(Wayland->Desktop_Toplevel);
+   }
+   Fullscreen = !Fullscreen;
+}
+
 // NOTE: Configure keyboard input callbacks.
 static void Map_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Format, int File, u32 Size)
 {
-   // close(File);
+   close(File);
 }
 static void Enter_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, struct wl_surface *Surface, struct wl_array *Keys)
 {
@@ -146,6 +162,21 @@ static void Key_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, u
 
    switch(Key)
    {
+      case KEY_F:
+      case KEY_F11: {
+         if(Pressed)
+         {
+            Toggle_Wayland_Fullscreen(Wayland);
+         }
+      } break;
+
+      case KEY_ENTER: {
+         if(Pressed && Wayland->Alt_Pressed)
+         {
+            Toggle_Wayland_Fullscreen(Wayland);
+         }
+      } break;
+
       case KEY_ESC: {
          if(Pressed)
          {
@@ -156,6 +187,12 @@ static void Key_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, u
 }
 static void Modify_Keyboard(void *Data, struct wl_keyboard *Keyboard, u32 Serial, u32 Mods_Depressed, u32 Mods_Latched, u32 Mods_Locked, u32 Group)
 {
+   wayland_context *Wayland = (wayland_context *)Data;
+
+   // TODO: There are more robust options than hard-coding 3 for Alt. They're
+   // much more verbose though.
+   u32 Alt_Bit = (1 << 3);
+   Wayland->Alt_Pressed = (Mods_Depressed & Alt_Bit);
 }
 static void Repeat_Keyboard(void *Data, struct wl_keyboard *Keyboard, int Rate, int Delay)
 {
@@ -237,8 +274,13 @@ static void Destroy_Wayland(wayland_context *Wayland)
    }
 }
 
-static bool Initialize_Wayland_Opengl(wayland_context *Wayland, int Width, int Height)
+static bool Initialize_Egl(wayland_context *Wayland, int Width, int Height)
 {
+   // NOTE: EGL is the Khronos interface used by Wayland programs to access
+   // OpenGL. It acts as the equivalent of wgl in Win32 and glx in X11. We use
+   // it to handle any platform-specific intialization for OpenGL and associate
+   // the generated context with our window.
+
    bool Result = false;
 
    EGLint Configuration_Attributes[] =
@@ -282,10 +324,12 @@ static bool Initialize_Wayland_Opengl(wayland_context *Wayland, int Width, int H
                      {
                         if(eglMakeCurrent(Wayland->Opengl_Display, Wayland->Opengl_Surface, Wayland->Opengl_Surface, Wayland->Opengl_Context))
                         {
-                           if(Initialize_Opengl())
+                           if(!eglSwapInterval(Wayland->Opengl_Display, 1))
                            {
-                              Result = true;
+                              fprintf(stderr, "EGL failed to enable vsync.\n");
                            }
+
+                           Result = true;
                         }
                         else
                         {
@@ -343,6 +387,10 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
 
       if(Wayland->Compositor && Wayland->Desktop_Base)
       {
+         // NOTE: It's not the end of the world if we don't have keyboard
+         // access. I'm still undecided on how much of this kind of
+         // initialization should happen in the callbacks vs. procedurally
+         // here. Not sure which is more "idiomatic Wayland", or if I care.
          if(Wayland->Seat)
          {
             Wayland->Keyboard = wl_seat_get_keyboard(Wayland->Seat);
@@ -368,6 +416,13 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
                   xdg_toplevel_add_listener(Wayland->Desktop_Toplevel, &Desktop_Toplevel_Listener, Wayland);
                   xdg_toplevel_set_title(Wayland->Desktop_Toplevel, "OpenGL Window");
 
+                  // NOTE: Explicitly setting the min and max sizes to the same
+                  // values is an indirect way of requesting a floating window
+                  // in Wayland, since only the compositor gets to decide what
+                  // actually happens.
+                  xdg_toplevel_set_min_size(Wayland->Desktop_Toplevel, Width, Height);
+                  xdg_toplevel_set_max_size(Wayland->Desktop_Toplevel, Width, Height);
+
                   // NOTE: Unclear why decorations are considered unstable, but
                   // if we can't get a title bar it's not a big deal.
                   if(Wayland->Decoration_Manager)
@@ -379,7 +434,7 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
                   wl_surface_commit(Wayland->Surface);
                   wl_display_dispatch(Wayland->Display);
 
-                  if(Initialize_Wayland_Opengl(Wayland, Width, Height))
+                  if(Initialize_Egl(Wayland, Width, Height))
                   {
                      Wayland->Running = true;
                   }
@@ -410,23 +465,21 @@ static void Initialize_Wayland(wayland_context *Wayland, int Width, int Height)
    }
 }
 
-static void Display_Wayland_With_Opengl(wayland_context *Wayland)
-{
-   Render_With_Opengl();
-   eglSwapBuffers(Wayland->Opengl_Display, Wayland->Opengl_Surface);
-}
-
 int main(void)
 {
    wayland_context Wayland = {0};
    Initialize_Wayland(&Wayland, 640, 480);
 
+   opengl_context GL = {0};
+   Initialize_Opengl(&GL);
+
    while(Wayland.Running)
    {
       wl_display_dispatch_pending(Wayland.Display);
 
-      Display_Wayland_With_Opengl(&Wayland);
+      Render_With_Opengl(&GL);
 
+      eglSwapBuffers(Wayland.Opengl_Display, Wayland.Opengl_Surface);
       wl_display_flush(Wayland.Display);
    }
 
