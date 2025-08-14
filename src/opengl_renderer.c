@@ -1,25 +1,5 @@
 /* (c) copyright 2025 Lawrence D. Kern /////////////////////////////////////// */
 
-static const GLchar *Vertex_Shader_Code =
-   "#version 330 core\n"
-   "layout(location = 0) in vec3 Vertex_Position;\n"
-   "layout(location = 1) in vec4 Vertex_Color;\n"
-   "out vec4 Fragment_Color;\n"
-   "void main(void)\n"
-   "{\n"
-   "   Fragment_Color = Vertex_Color;\n"
-   "   gl_Position = vec4(Vertex_Position.x, Vertex_Position.y, Vertex_Position.z, 1.0f);\n"
-   "}\n";
-
-static const GLchar *Fragment_Shader_Code =
-   "#version 330 core\n"
-   "in vec4 Fragment_Color;\n"
-   "out vec4 Pixel_Color;\n"
-   "void main(void)\n"
-   "{\n"
-   "   Pixel_Color = Fragment_Color;\n"
-   "}\n";
-
 static char *Opengl_Error_Names[] =
 {
    [GL_NO_ERROR]          = "GL_NO_ERROR",
@@ -49,6 +29,10 @@ static INITIALIZE_OPENGL(Initialize_Opengl)
    GLint Shader_Status;
    GLchar Message[256];
 
+   // TODO: Better shader managment.
+   const GLchar *Vertex_Shader_Code = Read_Entire_File("shaders/basic.vert");
+   Assert(Vertex_Shader_Code);
+
    GLuint Vertex_Shader = glCreateShader(GL_VERTEX_SHADER);
    glShaderSource(Vertex_Shader, 1, &Vertex_Shader_Code, 0);
    glCompileShader(Vertex_Shader);
@@ -60,6 +44,10 @@ static INITIALIZE_OPENGL(Initialize_Opengl)
       fprintf(stderr, "%s\n", Message);
       Assert(0);
    }
+
+   // TODO: Better shader managment.
+   const GLchar *Fragment_Shader_Code = Read_Entire_File("shaders/basic.frag");
+   Assert(Fragment_Shader_Code);
 
    GLuint Fragment_Shader = glCreateShader(GL_FRAGMENT_SHADER);
    glShaderSource(Fragment_Shader, 1, &Fragment_Shader_Code, 0);

@@ -1,4 +1,4 @@
-CFLAGS = -g3 -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter
+CFLAGS = -g3 -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-unused-function
 LDLIBS = -lGL
 
 WL_SCANNER   = $$(pkg-config wayland-scanner --variable=wayland_scanner)

@@ -7,6 +7,9 @@
 #include <wayland-client.h>
 #include <wayland-egl.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 #include <linux/input-event-codes.h>
 #include <EGL/egl.h>
 #include <GL/gl.h>
@@ -22,8 +25,63 @@
 #include "external/xdg-decoration-unstable-v1-protocol.c"
 
 #include "shared.h"
+#include "platform.h"
 #include "opengl_renderer.h"
 #include "opengl_renderer.c"
+
+static READ_ENTIRE_FILE(Read_Entire_File)
+{
+   char *Result = 0;
+
+   struct stat File_Information;
+   if(stat(Path, &File_Information) == 0)
+   {
+      int File = open(Path, O_RDONLY);
+      if(File != -1)
+      {
+         size Total_Size = File_Information.st_size;
+         Result = mmap(0, Total_Size+1, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+         if(Result)
+         {
+            size Total_Read = 0;
+            while(Total_Read < Total_Size)
+            {
+               size Single_Read = read(File, Result+Total_Read, Total_Size-Total_Read);
+               if(Single_Read == 0)
+               {
+                  break; // Done.
+               }
+               else if(Single_Read == -1)
+               {
+                  fprintf(stderr, "Failed to read file %s.\n", Path);
+                  break;
+               }
+               else
+               {
+                  Total_Read += Single_Read;
+               }
+            }
+
+            // NOTE: Null terminate.
+            Result[Total_Size] = 0;
+         }
+         else
+         {
+            fprintf(stderr, "Failed to allocate file %s.\n", Path);
+         }
+      }
+      else
+      {
+         fprintf(stderr, "Failed to open file %s.\n", Path);
+      }
+   }
+   else
+   {
+      fprintf(stderr, "Failed to determine size of file %s.\n", Path);
+   }
+
+   return(Result);
+}
 
 typedef struct {
    struct wl_display *Display;

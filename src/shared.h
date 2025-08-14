@@ -5,7 +5,11 @@
 
 #include <stdint.h>
 typedef int32_t s32;
+typedef uint8_t u8;
 typedef uint32_t u32;
+
+#include <stddef.h>
+typedef ptrdiff_t size;
 
 typedef struct {
    float X;
